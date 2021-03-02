@@ -474,9 +474,9 @@ class Game(object):
         return self.encoding_history[move_number]
 
     def make_target(self, move_number):
-        if self.status == None: status = 1
+        if self.status == None: status = 0
         else: status = self.status
-        return self.node_visits[move_number], float(status)
+        return status, self.node_visits[move_number]
 
 
 #Hot encoding features specific to a tile on a given board
@@ -555,7 +555,6 @@ def legal_indexes(all_moves, legal_moves):
         for i in [i for i, all in enumerate(all_moves) if all == ((legal.start_tile, legal.end_tile, legal.direction,legal.distance, legal.promotion))]:
             indexes.append(i)
     return indexes
-
 
 
 

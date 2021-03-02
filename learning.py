@@ -7,9 +7,9 @@ import math, numpy, copy, time
 
 class Config():
     total_move_number = 4864
-    max_moves = 3  
-    num_sample_moves = 30
-    num_simulations = 3
+    max_moves = 50
+    #num_sample_moves = 30
+    num_simulations = 100
 
     # Root prior exploration noise.
     root_dirichlet_alpha = 0.3  
@@ -18,14 +18,13 @@ class Config():
     pb_c_base = 19652
     pb_c_init = 1.25
 
-    training_steps = 3
-    checkpoint_interval = int(1e3)
+    training_steps = 10
+    checkpoint_interval = 2
     window_size = 1000
     batch_size = 50
 
     weight_decay = 1e-4
     momentum = 0.9
-
     learning_rate = 0.2
 
     learning_rate_schedule = {
@@ -44,12 +43,12 @@ class Network(object):
         self.model.save('.\model')
 
     def predict(self, input):
-        output = self.model.predict(input)
+        output = network.model.predict(input)
         policy_output, value_output = output[0][0], output[1][0][0]
         return policy_output, value_output
 
     def get_weights(self):
-        return self.model.trainable_weights
+        return self.model.get_weights()
 
 
 class Node(object):
@@ -74,48 +73,49 @@ class Storage(object):
     def __init__(self):
         self.buffer = []
         self.networks = {}
-        self.batch_size = 3
+        self.batch_size = 1
 
     def save_game(self, game):
         if len(self.buffer) > Config.window_size:
-            self.buffer.pop()
-        self.buffer.insert(0, game)
-
+            self.buffer.pop(0)
+            self.buffer.append(game)
+        else:
+            self.buffer.append(game)
 
     def sample_batch(self):
     # Sample uniformly across positions.
-        move_sum = float(sum(len(game.executed_moves) for game in self.buffer))
+        move_sum = float(sum(len(game.history) for game in self.buffer))
         games = numpy.random.choice(
             self.buffer,
             size=self.batch_size,
-            p=[len(game.executed_moves) / move_sum for game in self.buffer])
-        print('games chosen: ' + str(len(games)))
-        for g in games:
-            print('history length: ' + str(len(g.executed_moves)))
-        game_pos = [(game, numpy.random.randint(len(game.executed_moves))) for game in games]
+            p=[len(game.history) / move_sum for game in self.buffer])
+        game_pos = [(game, numpy.random.randint(len(game.history))) for game in games]
         return [(game.make_image(i), game.make_target(i)) for (game, i) in game_pos]
 
     def save_network(self, step, network):
         self.networks[step] = network
     
 
-def simulate_game(network, storage):
+def simulate_game(network, game_count):
     game = Game()
-    print('Starting Game')
+    move_count = 1
+    print('Starting Game ' + str(game_count))
     #While the game is still ongoing, run the MCTS, finding a new move
     while game.status == None and game.full_move_count < Config.max_moves:
         t0 = time.perf_counter()
-        next_move, root = mcts(network, game)
+        next_move, root = mcts(network, game, game_count, move_count)
         #Executing the found move in the current game
         game.execute_move(next_move)
+        move_count+=1
         t1 = time.perf_counter()
-        print('    Executing Move ' + str(game.full_move_count) + ', ' + str(t1 - t0) + ' Seconds')
+        print('    Executing Move ' + str(game.full_move_count) + ' for game ' + str(game_count) + 
+        ' (' + str(round(t1 - t0,2)) + ' seconds)')
         game.update_stats(root)
-    storage.save_game(game)
+
     return game
 
 
-def mcts(network, game):
+def mcts(network, game, game_count, move_count):
     root = Node(0)
     evaluate(network, game, root)
     add_exploration_noise(root)
@@ -126,9 +126,13 @@ def mcts(network, game):
         node = root
         temp_game = copy.deepcopy(game)
         search_path = [node]
-
+        child_count, sim_count = 1, i+1
         #If the node is already expanded, we select a child node for the next move and update our search path
         while node.expanded():
+            
+            print('Selecting child ' + str(child_count) + ' for simulation ' + str(sim_count)
+                + ' (Game ' + str(game_count) + ', Move ' + str(move_count) + ')')
+            child_count+=1
             next_move, node = select_child(node)
             temp_game.execute_move(next_move)
             search_path.append(node)
@@ -157,7 +161,6 @@ def evaluate(network, game, node):
 
 
 def select_child(node):
-    print('Selecting Child')
     max, res = None, ()
     #Loops over the node.children dictionary kay/value pairs returning the key(move) and value(child node) with highest UCB score
     for move, child in node.children.items():
@@ -204,56 +207,47 @@ def add_exploration_noise(node):
     node.children[move].prior = node.children[move].prior * (1 - frac) + n * frac
 
 
-#todo save network at specific points during training
+
 def train(network, storage):
-    #for i in range(Config.training_steps):
-    batch = storage.sample_batch()
-    update_weights(network, batch)
+    for i in range(Config.training_steps):
+        if i % Config.checkpoint_interval == 0:
+            network.save()
+        batch = storage.sample_batch()
+        update_weights(network, batch)
     #What is the point of saving the networks? Potential fallback?
     #storage.save_network(Config.training_steps, network)
 
 
 def update_weights(network, batch):
-    optimizer = tf.keras.optimizers.SGD(Config.learning_rate, Config.momentum, nesterov=False, name='SGD')
     loss = 0
-    for image, (target_policy, target_value) in batch:
-        image_policy, image_value = network.predict(image)
-        image_policy = tf.convert_to_tensor(image_policy)
-        image_value = tf.convert_to_tensor(image_value)
+    optimizer = tf.keras.optimizers.SGD(Config.learning_rate, Config.momentum, nesterov=False, name='SGD')
+    for image, (target_value, target_policy) in batch:
+        policy_output, value = network.predict(image)
+        loss += (
+            tf.losses.mean_squared_error(value, target_value) +
+            tf.nn.softmax_cross_entropy_with_logits(
+                logits=policy_output, labels=target_policy))
 
-        target_value = [target_value]
-        target_policy = tf.convert_to_tensor(target_policy)
-        target_value = tf.convert_to_tensor(target_value)
+    for weights in network.get_weights():
+        loss += Config.weight_decay * tf.nn.l2_loss(weights)
 
-        with tf.GradientTape() as tape:
-            tape.watch(network.model.trainable_weights)
-            loss += loss_fn(network, image_policy, image_value, target_policy, target_value)
-
-
-    #print(network.model.trainable_weights)
-    grad = tape.gradient(loss, network.model.trainable_weights)
-    print(grad)
-    #optimizer.apply_gradients(zip(grad, network.model.trainable_weights))
-
-        
-
-
-def loss_fn(network, image_policy, image_value, target_policy, target_value):
-    loss = (tf.losses.mean_squared_error(image_value, target_value)
-                    +
-            (tf.nn.softmax_cross_entropy_with_logits(labels=target_policy, logits=image_policy)))
-    
-    return loss
+    optimizer.minimize(loss)
 
 
 
 
-storage = Storage()
+#storage = Storage()
 network = Network()
-game = simulate_game(network, storage)
-train(network, storage)
 
-
+for i in range(1,1000):
+    info = []
+    game = simulate_game(network, i)
+    info = [game.encoding_history, game.node_visits, game.status]
+    #storage.save_game(game)
+    f = open('saved_games.txt', 'a')
+    f.write(str(info))
+    f.write('/')
+    f.close()
 
 
 
