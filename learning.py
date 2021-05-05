@@ -235,19 +235,10 @@ def update_weights(network, batch):
 
 
 
-
-#storage = Storage()
+storage = Storage()
 network = Network()
-
-for i in range(1,1000):
-    info = []
-    game = simulate_game(network, i)
-    info = [game.encoding_history, game.node_visits, game.status]
-    #storage.save_game(game)
-    f = open('saved_games.txt', 'a')
-    f.write(str(info))
-    f.write('/')
-    f.close()
+game = simulate_game(network, storage)
+train(network, storage)
 
 
 
