@@ -21,6 +21,6 @@ Also using Keras, this is a much more in depth convolutional neural network utli
 `Learning.py`
 This is the main file for training and self-play of the neural network. When called, this loads in the locally saved network model and instantiates a Game object. Through the use of a monte carlo tree search and initially randomized values of initial moves, the network plays through a game, selecting moves based on network output values, then updating the trainable wieghts within the network with a function designed to reduce the error between expected output value of the game for a given move with the observed actual outcome of the game at the end of the self play simulation.
 Using the config class at the top of the Learning.py file, users can alter the number of simulations run, moves per simulation, and network learning fields. While running, Learning.py will output to console information regarding the self play (Game #, simulation #, move #, etc). 
-
+View the bottom of this file for varying ways to run self-play.
 
 
