@@ -233,12 +233,31 @@ def update_weights(network, batch):
 
     optimizer.minimize(loss)
 
+    
+    
+    
+#Using something like this you can save games to text files for deeper research or understanding
+#
+#
+#
+#network = Network()
+#for i in range(1,1000):
+#   info = []
+#    game = simulate_game(network, i)
+#    info = [game.encoding_history, game.node_visits, game.status]
+#    storage.save_game(game)
+#    f = open('saved_games.txt', 'a')
+#    f.write(str(info))
+#    f.write('/')
+#    f.close()
+#train(network, storage)
 
 
-storage = Storage()
-network = Network()
-game = simulate_game(network, storage)
-train(network, storage)
+#This code runs a single game simulation and trains the network
+#storage = Storage()
+#network = Network()
+#game = simulate_game(network, 1)
+#train(network, storage)
 
 
 
